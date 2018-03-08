@@ -386,7 +386,7 @@ struct demo {
     VkFence external_fance;
     SwapchainImageResources* external_swapchain_image_resources;
     uint8_t* external_cpu_address;
-    //VkImage external_swapchain_iamges[2];
+   //VkImage external_swapchain_iamges[2];
     //
     uint32_t enabled_extension_count;
     uint32_t enabled_layer_count;
@@ -1750,9 +1750,15 @@ static void demo_prepare_textures(struct demo *demo) {
 }
 
 void demo_prepare_cube_data_buffers(struct demo *demo) {
+    /*
+    VkExternalBufferPropertiesKHR ext_buf_properties = {};
+    VkExternalMemoryBufferCreateInfoKHR ext_mem_buf_info;
+    */
     VkBufferCreateInfo buf_info;
     VkMemoryRequirements mem_reqs;
     VkMemoryAllocateInfo mem_alloc;
+    VkImportMemoryHostPointerInfoEXT host_point_import_info;
+
     //uint8_t *pData;
     mat4x4 MVP, VP;
     VkResult U_ASSERT_ONLY err;
@@ -1774,12 +1780,37 @@ void demo_prepare_cube_data_buffers(struct demo *demo) {
         data.attr[i][2] = 0;
         data.attr[i][3] = 0;
     }
+    
+    /*
+    ext_mem_buf_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO_KHR;
+    ext_mem_buf_info.pNext = NULL;
+    ext_mem_buf_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT;
+    */
 
     memset(&buf_info, 0, sizeof(buf_info));
     buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buf_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buf_info.size = sizeof(data);
+    /*
+    buf_info.pNext = &ext_mem_buf_info;
+    
+    VkPhysicalDeviceExternalBufferInfoKHR phy_dev_ext_buf_info;
+    phy_dev_ext_buf_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO_KHR;
+    phy_dev_ext_buf_info.pNext = NULL;
+    phy_dev_ext_buf_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    phy_dev_ext_buf_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT;
+   
+  
+    vkGetPhysicalDeviceExternalBufferPropertiesKHR(demo->gpu,
+                                                   &phy_dev_ext_buf_info,
+                                                   &ext_buf_properties);
 
+    if (ext_buf_properties.externalMemoryProperties.compatibleHandleTypes == 0)
+    {
+        printf("Not Support VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT handle type.");
+        exit(0);
+    }
+    */
     for (unsigned int i = 0; i < demo->swapchainImageCount; i++) {
         err =
             vkCreateBuffer(demo->device, &buf_info, NULL,
@@ -1789,20 +1820,28 @@ void demo_prepare_cube_data_buffers(struct demo *demo) {
         vkGetBufferMemoryRequirements(demo->device,
                                       demo->swapchain_image_resources[i].uniform_buffer,
                                       &mem_reqs);
+                                            
         mem_reqs.size = (mem_reqs.size + 4095) & (~0xfff); 
 
-        hostPoint = demo->external_cpu_address;
-
-        const VkImportMemoryHostPointerInfoEXT hostPointerImportInfo =
-        {
-            VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
-            NULL,
-            VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT,
-            (void *)hostPoint
-        };
+        
+        //allocate memory from host mapped foreign
+        void* hostPoint = demo->external_cpu_address;
+        /*
+        //need latest load to get the function define
+        VkMemoryHostPointerPropertiesEXT host_pointer_properties = {};
+        vkGetMemoryHostPointerPropertiesEXT(demo->device,
+                                            VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT,
+                                            hostPoint,
+                                            &host_pointer_properties);
+        */
+        
+        host_point_import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
+        host_point_import_info.pNext = NULL;
+        host_point_import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT;
+        host_point_import_info.pHostPointer = hostPoint;
 
         mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        mem_alloc.pNext = &hostPointerImportInfo;
+        mem_alloc.pNext = &host_point_import_info;
         mem_alloc.allocationSize = mem_reqs.size;
         mem_alloc.memoryTypeIndex = 0;
 
@@ -1816,14 +1855,8 @@ void demo_prepare_cube_data_buffers(struct demo *demo) {
                            &demo->swapchain_image_resources[i].uniform_memory);
         assert(!err);
         
+        //copy vertex buffer to host memory mapped from foreign
         memcpy(hostPoint, &data, sizeof data);
-        //err = vkMapMemory(demo->device, demo->swapchain_image_resources[i].uniform_memory, 0,
-        //              VK_WHOLE_SIZE, 0, (void **)&pData);
-        //assert(!err);
-
-        //memcpy(pData, &data, sizeof data);
-        
-        //vkUnmapMemory(demo->device, demo->swapchain_image_resources[i].uniform_memory);
 
         err = vkBindBufferMemory(demo->device, demo->swapchain_image_resources[i].uniform_buffer,
                              demo->swapchain_image_resources[i].uniform_memory, 0);
@@ -2268,36 +2301,28 @@ static void demo_prepare_framebuffers(struct demo *demo) {
     }
 }
 
-void demo_init_external_device(struct demo *demo)
+void demo_prepare_external_device_memory(struct demo *demo)
 {
     VkResult U_ASSERT_ONLY err;
 
-    uint32_t memAllocSize = 4096 * 2; //4096 * 2;//2097152;
+    uint32_t memAllocSize = 4096 * 2; 
+    
     VkDeviceMemory uniform_memory;
     VkMemoryAllocateInfo mem_alloc;
     mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     mem_alloc.pNext = NULL;
     mem_alloc.allocationSize = memAllocSize ;
-    mem_alloc.memoryTypeIndex = 0;//VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-    bool pass;
-    pass = memory_type_from_properties(
-       demo, 15, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-       &mem_alloc.memoryTypeIndex);
-    assert(pass);
+    mem_alloc.memoryTypeIndex = 1; // for VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT type
 
     err = vkAllocateMemory(demo->external_device, &mem_alloc, NULL,
-                        //&demo->external_swapchain_image_resources[0].uniform_memory);
                         &uniform_memory);
     assert(!err);
 
-    err = vkMapMemory(demo->external_device, uniform_memory, 0,//demo->external_swapchain_image_resources[0].uniform_memory, 0,
+    err = vkMapMemory(demo->external_device, uniform_memory, 0,
                   VK_WHOLE_SIZE, 0, (void **)&demo->external_cpu_address);
   
     memset(demo->external_cpu_address, 0, memAllocSize);
     assert(!err);
-
 }
 static void demo_prepare(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
@@ -2332,7 +2357,7 @@ static void demo_prepare(struct demo *demo) {
 
     demo_prepare_buffers(demo);
     
-    demo_init_external_device(demo);
+    demo_prepare_external_device_memory(demo);
     
     demo_prepare_depth(demo);
     demo_prepare_textures(demo);
@@ -3406,6 +3431,7 @@ static void demo_init_vk(struct demo *demo) {
             demo->gpu, NULL, &device_extension_count, device_extensions);
         assert(!err);
 
+        bool supportExternalMemoryHost = false;
         for (uint32_t i = 0; i < device_extension_count; i++) {
             if (!strcmp(VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                         device_extensions[i].extensionName)) {
@@ -3415,10 +3441,16 @@ static void demo_init_vk(struct demo *demo) {
             }
             if (!strcmp(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME,
                         device_extensions[i].extensionName)) {
+                supportExternalMemoryHost = true;
                 demo->extension_names[demo->enabled_extension_count++] = 
                 VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME;
             }
             assert(demo->enabled_extension_count < 64);
+        }
+        if (!supportExternalMemoryHost)
+        {
+            printf("VK_EXT_external_memory_host not supported!");
+            exit(0);
         }
 
         if (demo->VK_KHR_incremental_present_enabled) {
@@ -4251,8 +4283,6 @@ int main(int argc, char **argv) {
 #endif
     demo_init_vk_swapchain(&demo);
 
-//    demo_init_external_device(&demo);
-    
     demo_prepare(&demo);
 
 #if defined(VK_USE_PLATFORM_XCB_KHR)
