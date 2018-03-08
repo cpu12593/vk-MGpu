@@ -1789,27 +1789,14 @@ void demo_prepare_cube_data_buffers(struct demo *demo) {
         vkGetBufferMemoryRequirements(demo->device,
                                       demo->swapchain_image_resources[i].uniform_buffer,
                                       &mem_reqs);
-        bool isPinned = false;
-        uint8_t* hostPoint = NULL;
-        if (isPinned)
-        {
-            char* pinnedHostPoint = (char*)malloc(256* 256 + 4096);
-            long addr = (long) pinnedHostPoint;
-            uint8_t* alignePoint = (uint8_t*)((addr + 4095) & (~0xfff));
-        //    memcpy(alignePoint, &data, sizeof data);
-            hostPoint = alignePoint;
-        }
-        else
-        {
-        //    memcpy(demo->external_cpu_address, &data, sizeof data);
-            hostPoint = demo->external_cpu_address;
-        }
+        mem_reqs.size = (mem_reqs.size + 4095) & (~0xfff); 
+
+        hostPoint = demo->external_cpu_address;
 
         const VkImportMemoryHostPointerInfoEXT hostPointerImportInfo =
         {
             VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
             NULL,
-            //VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
             VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT,
             (void *)hostPoint
         };
@@ -2284,112 +2271,6 @@ static void demo_prepare_framebuffers(struct demo *demo) {
 void demo_init_external_device(struct demo *demo)
 {
     VkResult U_ASSERT_ONLY err;
-    //uint32_t i;
-    //const VkCommandPoolCreateInfo cmd_pool_info = {
-    //    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-    //    .pNext = NULL,
-    //    .queueFamilyIndex = demo->graphics_queue_family_index,
-    //    .flags = 0,
-    //};
-    //err = vkCreateCommandPool(demo->external_device, &cmd_pool_info, NULL,
-    //                          &demo->external_cmd_pool);
-    //assert(!err);
-
-//  //  const VkCommandBufferAllocateInfo cmd = {
-//  //      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-//  //      .pNext = NULL,
-//  //      .commandPool = demo->cmd_pool,
-//  //      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-//  //      .commandBufferCount = 1,
-//  //  };
-//  //  err = vkAllocateCommandBuffers(demo->device, &cmd, &demo->cmd);
-//  //  assert(!err);
-//  //  VkCommandBufferBeginInfo cmd_buf_info = {
-//  //      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-//  //      .pNext = NULL,
-//  //      .flags = 0,
-//  //      .pInheritanceInfo = NULL,
-//  //  };
-    //vkGetDeviceQueue(demo->external_device, 0, 0, &demo->external_graphics_queue);    
-
-    //VkExtent2D swapchainExtent = {};
-    //swapchainExtent.width = demo->width; 
-    //swapchainExtent.height = demo->height;
-    //
-    //VkSwapchainCreateInfoKHR swapchain_ci = {
-    //    .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-    //    .pNext = NULL,
-    //    .surface = demo->surface,
-    //    .minImageCount = 2,
-    //    .imageFormat = demo->format,
-    //    .imageColorSpace = demo->color_space,
-    //    .imageExtent =
-    //        {
-    //         .width = swapchainExtent.width, .height = swapchainExtent.height,
-    //        },
-    //    .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-    //    .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-    //    .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-    //    .imageArrayLayers = 1,
-    //    .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-    //    .queueFamilyIndexCount = 0,
-    //    .pQueueFamilyIndices = NULL,
-    //    .presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR,
-    //    .oldSwapchain = VK_NULL_HANDLE,
-    //    .clipped = true,
-    //};
-    //err = demo->fpCreateSwapchainKHR(demo->external_device, &swapchain_ci, NULL,
-    //                                 &demo->external_swapchain);
-    //assert(!err);
-    //
-    //uint32_t image_count;
-    //err = demo->fpGetSwapchainImagesKHR(demo->external_device, demo->external_swapchain,
-    //                                    &image_count, NULL);
-    //assert(image_count != 2);
-    //assert(!err);
-
-    //VkImage *swapchainImages =
-    //    (VkImage *)malloc(image_count * sizeof(VkImage));
-    //assert(swapchainImages);
-
-    //err = demo->fpGetSwapchainImagesKHR(demo->external_device, demo->external_swapchain,
-    //                                    &image_count,
-    //                                    swapchainImages);
-    //assert(!err);
-
-    //demo->external_swapchain_image_resources = (SwapchainImageResources *)malloc(sizeof(SwapchainImageResources) *
-    //                                           image_count);
-    //assert(demo->external_swapchain_image_resources);
-    //for (i = 0; i < image_count; i++) {
-    //    VkImageViewCreateInfo color_image_view = {
-    //        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-    //        .pNext = NULL,
-    //        .format = demo->format,
-    //        .components =
-    //            {
-    //             .r = VK_COMPONENT_SWIZZLE_R,
-    //             .g = VK_COMPONENT_SWIZZLE_G,
-    //             .b = VK_COMPONENT_SWIZZLE_B,
-    //             .a = VK_COMPONENT_SWIZZLE_A,
-    //            },
-    //        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-    //                             .baseMipLevel = 0,
-    //                             .levelCount = 1,
-    //                             .baseArrayLayer = 0,
-    //                             .layerCount = 1},
-    //        .viewType = VK_IMAGE_VIEW_TYPE_2D,
-    //        .flags = 0,
-    //    };
-
-    //    demo->external_swapchain_image_resources[i].image = swapchainImages[i];
-
-    //    color_image_view.image = demo->external_swapchain_image_resources[i].image;
-
-    //    err = vkCreateImageView(demo->external_device, &color_image_view, NULL,
-    //                            &demo->external_swapchain_image_resources[i].view);
-    //    assert(!err);
-    //}
-    //allocate memory and map, storage the virtural address
 
     uint32_t memAllocSize = 4096 * 2; //4096 * 2;//2097152;
     VkDeviceMemory uniform_memory;
@@ -3531,6 +3412,11 @@ static void demo_init_vk(struct demo *demo) {
                 swapchainExtFound = 1;
                 demo->extension_names[demo->enabled_extension_count++] =
                     VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+            }
+            if (!strcmp(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME,
+                        device_extensions[i].extensionName)) {
+                demo->extension_names[demo->enabled_extension_count++] = 
+                VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME;
             }
             assert(demo->enabled_extension_count < 64);
         }
