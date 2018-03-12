@@ -386,6 +386,8 @@ struct demo {
     VkFence external_fance;
     SwapchainImageResources* external_swapchain_image_resources;
     uint8_t* external_cpu_address;
+    VkImage copy_result_image;
+    VkDeviceMemory copy_result_mem;
    //VkImage external_swapchain_iamges[2];
     //
     uint32_t enabled_extension_count;
@@ -990,6 +992,8 @@ static void demo_draw(struct demo *demo) {
         } else {
             assert(!err);
         }
+        //copy swapchain current image to memory which is host mapped from foreign
+        
     } while (err != VK_SUCCESS);
 
     demo_update_data_buffer(demo);
@@ -2305,7 +2309,7 @@ void demo_prepare_external_device_memory(struct demo *demo)
 {
     VkResult U_ASSERT_ONLY err;
 
-    uint32_t memAllocSize = 4096 * 2; 
+    uint32_t memAllocSize = 4096 * 4096; 
     
     VkDeviceMemory uniform_memory;
     VkMemoryAllocateInfo mem_alloc;
@@ -2324,6 +2328,73 @@ void demo_prepare_external_device_memory(struct demo *demo)
     memset(demo->external_cpu_address, 0, memAllocSize);
     assert(!err);
 }
+
+static void demo_prepare_image_for_copy(struct demo* demo)
+{
+    VkResult U_ASSERT_ONLY err;
+    bool U_ASSERT_ONLY pass;
+    
+//    VkImage src_image = demo->swapchain_image_resources[demo->current_buffer].image;
+
+    //create image from memory host mapped foreign device
+    const VkImageCreateInfo image_create_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = NULL,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = VK_FORMAT_R8G8B8A8_UNORM,
+        .extent = {demo->width, demo->height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_LINEAR,
+        .usage  = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        .flags = 0,
+        .initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED,
+    };
+    
+    VkMemoryRequirements mem_reqs;
+    VkMemoryAllocateInfo mem_alloc;
+    VkImportMemoryHostPointerInfoEXT host_point_import_info;
+
+    err =
+        vkCreateImage(demo->device, &image_create_info, NULL, &demo->copy_result_image);
+    assert(!err);
+
+    vkGetImageMemoryRequirements(demo->device, demo->copy_result_image, &mem_reqs);
+    
+    mem_reqs.size = (mem_reqs.size + 4095) & ~0xFFF;
+
+    int offset = 4096*2;
+    //allocate memory from host mapped foreign
+    void* hostPoint = demo->external_cpu_address + offset;
+    
+    host_point_import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
+    host_point_import_info.pNext = NULL;
+    host_point_import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT;
+    host_point_import_info.pHostPointer = hostPoint;
+
+    mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mem_alloc.pNext = (void*)&host_point_import_info;
+    mem_alloc.allocationSize = mem_reqs.size;
+    mem_alloc.memoryTypeIndex = 0;
+
+    pass = memory_type_from_properties(
+        demo, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &mem_alloc.memoryTypeIndex);
+    assert(pass);
+
+    /* allocate memory */
+    err = vkAllocateMemory(demo->device, &mem_alloc, NULL,
+                           &demo->copy_result_mem);
+    assert(!err);
+    
+    /* bind memory */
+    err = vkBindImageMemory(demo->device, demo->copy_result_image, demo->copy_result_mem, 0);
+    assert(!err);
+}
+
 static void demo_prepare(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
 
@@ -2358,7 +2429,8 @@ static void demo_prepare(struct demo *demo) {
     demo_prepare_buffers(demo);
     
     demo_prepare_external_device_memory(demo);
-    
+    demo_prepare_image_for_copy(demo);
+
     demo_prepare_depth(demo);
     demo_prepare_textures(demo);
     demo_prepare_cube_data_buffers(demo);
