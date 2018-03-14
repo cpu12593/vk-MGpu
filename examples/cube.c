@@ -968,6 +968,40 @@ void DemoUpdateTargetIPD(struct demo *demo) {
     }
 }
 
+static void demo_prepare_cmd(struct demo *demo)
+{
+    VkResult U_ASSERT_ONLY err;
+
+    const VkCommandPoolCreateInfo cmd_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .pNext = NULL,
+        .queueFamilyIndex = demo->graphics_queue_family_index,
+        .flags = 0,
+    };
+    err = vkCreateCommandPool(demo->device, &cmd_pool_info, NULL,
+                              &demo->cmd_pool);
+    assert(!err);
+
+    const VkCommandBufferAllocateInfo cmd = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .commandPool = demo->cmd_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    err = vkAllocateCommandBuffers(demo->device, &cmd, &demo->cmd);
+    assert(!err);
+    VkCommandBufferBeginInfo cmd_buf_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .pInheritanceInfo = NULL,
+    };
+    err = vkBeginCommandBuffer(demo->cmd, &cmd_buf_info);
+
+    assert(!err);
+    
+}
 static void demo_draw(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
 
@@ -993,7 +1027,47 @@ static void demo_draw(struct demo *demo) {
             assert(!err);
         }
         //copy swapchain current image to memory which is host mapped from foreign
+        demo_prepare_cmd(demo);
         
+        demo_set_image_layout(demo, demo->swapchain_image_resources[demo->current_buffer].image,
+                              VK_IMAGE_ASPECT_COLOR_BIT,
+                              VK_IMAGE_LAYOUT_UNDEFINED,//VK_IMAGE_LAYOUT_PREINITIALIZED,
+                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                              VK_ACCESS_HOST_WRITE_BIT,
+                              VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,//VK_PIPELINE_STAGE_HOST_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        demo_set_image_layout(demo, demo->copy_result_image,
+                              VK_IMAGE_ASPECT_COLOR_BIT,
+                              VK_IMAGE_LAYOUT_PREINITIALIZED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              0,
+                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        VkImageCopy copy_region = {
+            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .srcOffset = {0, 0, 0},
+            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .dstOffset = {0, 0, 0},
+            .extent = {demo->width,
+                       demo->height, 1},
+        };
+        vkCmdCopyImage(
+            demo->cmd, demo->swapchain_image_resources[demo->current_buffer].image,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, demo->copy_result_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+
+        demo_set_image_layout(demo,demo->copy_result_image, 
+                              VK_IMAGE_ASPECT_COLOR_BIT,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                              VK_ACCESS_TRANSFER_WRITE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+       demo_flush_init_cmd(demo);
+    
     } while (err != VK_SUCCESS);
 
     demo_update_data_buffer(demo);
@@ -2398,15 +2472,8 @@ static void demo_prepare_image_for_copy(struct demo* demo)
 static void demo_prepare(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
 
-    const VkCommandPoolCreateInfo cmd_pool_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext = NULL,
-        .queueFamilyIndex = demo->graphics_queue_family_index,
-        .flags = 0,
-    };
-    err = vkCreateCommandPool(demo->device, &cmd_pool_info, NULL,
-                              &demo->cmd_pool);
-    assert(!err);
+
+    demo_prepare_cmd(demo);
 
     const VkCommandBufferAllocateInfo cmd = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -2415,16 +2482,6 @@ static void demo_prepare(struct demo *demo) {
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1,
     };
-    err = vkAllocateCommandBuffers(demo->device, &cmd, &demo->cmd);
-    assert(!err);
-    VkCommandBufferBeginInfo cmd_buf_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .pInheritanceInfo = NULL,
-    };
-    err = vkBeginCommandBuffer(demo->cmd, &cmd_buf_info);
-    assert(!err);
 
     demo_prepare_buffers(demo);
     
